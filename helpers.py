@@ -3,7 +3,7 @@ from __future__ import print_function
 import os
 import sys
 import shapefile
-
+import time
 
 from PyQt5 import QtGui, QtCore
 from PyQt5.QtCore import *
@@ -90,9 +90,9 @@ class road_system(QWidget):
 		if only_continental:
 			self.trim_to_continental()
 
-		trim_roads = True
+		trim_roads = False
 		if trim_roads:
-			self.trim_to_length(100)
+			self.trim_to_length(1000)
 
 		self.road_coordinates = self.get_road_coordinates()
 		self.top_left_coordinate = self.get_top_left_coordinate()
@@ -108,6 +108,18 @@ class road_system(QWidget):
 		self.map_all_to_ui()
 		self.have_roads = True
 		self.new_roads = True
+
+		self.init_qpainterpaths()
+
+	def init_qpainterpaths(self):
+		# goes through the roads in self.road_coordinates and creates a single qpainterpath for each
+		self.qpainterpaths = []
+		for road in self.road_coordinates:
+			if len(road)>=1:
+				temp = QPainterPath()
+				for coordinate in road:
+					temp.lineTo(coordinate[0],coordinate[1])
+				self.qpainterpaths.append(temp)
 
 	def get_top_left_coordinate(self):
 		highest_latitude = -100000
@@ -213,6 +225,7 @@ class road_system(QWidget):
 		self.qp.end()
 
 	def drawWidget(self, qp):
+		start_time = time.time()
 		ui_height,ui_width = [self.size().height(),self.size().width()]
 		top_left,bottom_right = self.top_left_coordinate,self.bottom_right_coordinate
 
@@ -225,7 +238,7 @@ class road_system(QWidget):
 		ui_width = render_width
 		ui_height = render_height
 
-		print(ui_height,ui_width,top_left,bottom_right,latitude_per_pixel,longitude_per_pixel)
+		#print(ui_height,ui_width,top_left,bottom_right,latitude_per_pixel,longitude_per_pixel)
 
 		self.ui_height = ui_height
 		self.ui_width = ui_width
@@ -237,6 +250,7 @@ class road_system(QWidget):
 		qp.setPen(pen)
 		qp.setBrush(Qt.NoBrush)
 
+		'''
 		if self.using_zoom_dimensions:
 			coords = self.zoomed_coordinates
 		else:
@@ -252,10 +266,14 @@ class road_system(QWidget):
 					current = coordinate
 					qp.drawLine(last[0],last[1],current[0],current[1])
 					last = current
+		'''
+
+		
 
 		self.new_roads = False 
 		self.last_render_width = ui_width
 		self.last_render_height = ui_height
+		print("Finished rendering map in "+str(time.time()-start_time)+" seconds")
 
 	def map_to_ui(self,coordinate):
 		x_run = (coordinate[0]-self.top_left_coordinate[0])/self.longitude_per_pixel
