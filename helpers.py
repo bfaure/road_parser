@@ -54,6 +54,7 @@ class road_system(QWidget):
 
 	def init_ui(self):
 		self.have_roads = False
+		self.using_zoom_dimensions = False
 
 	def trim_to_continental(self):
 		new_roads = []
@@ -71,16 +72,31 @@ class road_system(QWidget):
 				new_roads.append(road)
 		self.roads = new_roads
 
+	def trim_to_length(self,length):
+		new_roads = []
+		index = 0
+		for road in self.roads:
+			delete_it = False
+			if len(road.points)<length:
+				delete_it = True
+			if delete_it==False:
+				new_roads.append(road)
+		self.roads = new_roads
+
 	def load_roads(self,roads):
 		self.roads = roads
 
 		only_continental = True 
 		if only_continental:
 			self.trim_to_continental()
+
+		trim_roads = True
+		if trim_roads:
+			self.trim_to_length(100)
+
 		self.road_coordinates = self.get_road_coordinates()
 		self.top_left_coordinate = self.get_top_left_coordinate()
 		self.bottom_right_coordinate = self.get_bottom_right_coordinate()
-
 
 		ui_height,ui_width = [self.size().height(),self.size().width()]
 		latitude_per_pixel = float(abs(self.top_left_coordinate[1]-self.bottom_right_coordinate[1])/ui_height)
@@ -155,7 +171,7 @@ class road_system(QWidget):
 		if map_grid_coordinate_x<1:
 			map_grid_coordinate_x = 1
 
-
+		print("X mapping: "+str(map_grid_coordinate_x)+", Y mapping: "+str(map_grid_coordinate_y))
 		cell_chars = []
 
 		for row in range(width):
@@ -169,12 +185,13 @@ class road_system(QWidget):
 		for row in cell_chars:
 			x = 0
 			for cell in row:
-				print("                                                                 ",end="\r")
 				print("Checking ("+str(x)+","+str(y)+")...",end="\r")
 				if self.road_in_area(x,y,map_grid_coordinate_x,map_grid_coordinate_y):
 					cell_chars[y][x] = 'a'
+					print("                                                                 ",end="\r")
 					print("Checking ("+str(x)+","+str(y)+")... found a road",end="\r")
 				else:
+					print("                                                                 ",end="\r")
 					print("Checking ("+str(x)+","+str(y)+")... found no road",end="\r")
 				x+=1
 			y+=1
@@ -220,8 +237,13 @@ class road_system(QWidget):
 		qp.setPen(pen)
 		qp.setBrush(Qt.NoBrush)
 
+		if self.using_zoom_dimensions:
+			coords = self.zoomed_coordinates
+		else:
+			coords = self.mapped_coordinates
+
 		road_ct = 0
-		for road in self.mapped_coordinates:
+		for road in coords:
 			if len(road)>=1:
 				print("Drawing a road: "+str(road_ct),end="\r")
 				road_ct+=1
@@ -240,6 +262,73 @@ class road_system(QWidget):
 		y_run = (self.top_left_coordinate[1]-coordinate[1])/self.latitude_per_pixel
 		#print(x_run,y_run)
 		return [x_run,y_run]
+
+	def map_to_earth(self,coordinate):
+		x_run = (coordinate[0]*self.longitude_per_pixel)+self.top_left_coordinate[0]
+		y_run = -1.0*((coordinate[1]*self.latitude_per_pixel)-self.top_left_coordinate[1])
+		return [x_run,y_run]
+
+	def reset_zoom(self):
+		self.using_zoom_dimensions = False
+		self.repaint()
+
+	def set_zoom_dimensions(self,zoom_path):
+		return
+
+		self.using_zoom_dimensions = True 
+		self.map_all_to_earth(zoom_path)
+		top_left_coordinate = get_top_left_coordinate_path(self.unmapped_coordinates)
+		bottom_right_coordinate = get_bottom_right_coordinate_path(self.unmapped_coordinates)
+
+		self.zoom(top_left_coordinate[0],top_left_coordinate[1],bottom_right_coordinate[0],bottom_right_coordinate[1])
+
+	def zoom(self,x0,y0,x1,y1):
+		return
+		'''
+		self.zoomed_coordinates = []
+		for road in self.mapped_coordinates:
+			keep_road = True
+			for coordinate in road:
+				if coordinate[0]>x1 or coordinate[0]<x0 or coordinate[1]>y1 or coordinate[1]<y0:
+					keep_road = False
+					break
+			if keep_road:
+				self.zoomed_co
+		'''
+
+	'''
+	def get_top_left_coordinate_path(self,path):
+		highest_latitude = -100000
+		lowest_longitude = 100000
+
+		for road in self.road_coordinates:
+			for coordinate in road:
+
+				if coordinate[0] < lowest_longitude:
+					lowest_longitude = coordinate[0]
+
+				if coordinate[1] > highest_latitude:
+					highest_latitude = coordinate[1]
+
+		return [lowest_longitude,highest_latitude]
+
+	def get_bottom_right_coordinate_path(self,path):
+		lowest_latitutude = 100000
+		highest_longitude = -1000000
+
+		for coord in path:
+			if 
+			for coordinate in road:
+				if coordinate[0] > highest_longitude:
+					highest_longitude = coordinate[0]
+				if coordinate[1] < lowest_latitutude:
+					lowest_latitutude = coordinate[1]
+		return [highest_longitude,lowest_latitutude]
+	'''
+	def map_all_to_earth(self,path):
+		self.unmapped_coordinates = []
+		for coordinate in path:
+			self.unmapped_coordinates.append(self.map_to_earth(coordinate))
 
 	def map_all_to_ui(self):
 		self.mapped_coordinates = []
