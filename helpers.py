@@ -65,10 +65,17 @@ class road_system(QWidget):
 
 		self.show_connected_roads = False
 		self.is_connected = []
+
+		self.start_translate = False
+		self.started_translate = False
+		self.translate_start_coordinates = [-1,-1]
+
+		self.road_used_as_stem = None
 		
 	def init_ui(self):
 		self.have_roads = False
 		self.using_zoom_dimensions = False
+		self.using_translated_dimensions = False
 
 	def trim_to_continental(self):
 		new_roads = []
@@ -234,7 +241,6 @@ class road_system(QWidget):
 		f.write(cell_chars_str)
 		print("Finished saving to "+filename)
 
-	
 	def enterEvent(self,event):
 		# called if the mouse cursor goes over the widget
 
@@ -251,13 +257,23 @@ class road_system(QWidget):
 		if self.drawing_zoom_rect and self.started_rectangle:
 			self.zoom_end_coordinates = [event.x(),event.y()]
 			self.drawing_zoom_rect = False
+			self.setCursor(QCursor(Qt.ArrowCursor))
 			self.zoom()
+		if self.start_translate and self.started_translate:
+			self.translate_end_coordinates = [event.x(),event.y()]
+			self.start_translate = False
+			self.setCursor(QCursor(Qt.ArrowCursor))
+			self.translate()
 
 	def mousePressEvent(self,event):
 		# if we are drawing the zoom rectance, save the start coordinates
 		if self.drawing_zoom_rect:
 			self.zoom_start_coordinates = [event.x(),event.y()]
 			self.started_rectangle = True
+		if self.start_translate:
+			self.setCursor(QCursor(Qt.ClosedHandCursor))
+			self.translate_start_coordinates = [event.x(),event.y()]
+			self.started_translate = True
 
 	def mouseMoveEvent(self,event):
 		self.mouse_x = event.x()
@@ -265,21 +281,98 @@ class road_system(QWidget):
 		if self.show_connected_roads: self.get_connected_roads()
 		self.update()
 
+	def translate(self):
+		x_diff = self.translate_end_coordinates[0]-self.translate_start_coordinates[0]
+		y_diff = self.translate_end_coordinates[1]-self.translate_start_coordinates[1]
+
+		source = self.qpainterpaths
+		if self.using_zoom_dimensions:
+			source = self.qpainterpaths_zoomed
+
+		new_roads = []
+
+		for road in source:
+			new_roads.append(road.translated(x_diff,y_diff))
+
+		if self.using_zoom_dimensions:
+			self.qpainterpaths_zoomed = new_roads
+		else:
+			self.qpainterpaths = new_roads
+
 	def get_connected_roads(self):
 		# gets all roads connected to the current mouse location
-		self.is_connected = [] # list of booleans
+		
 		click_rect = QRectF()
 		click_rect.setCoords(self.mouse_x-1,self.mouse_y-1,self.mouse_x+2,self.mouse_y+2)
 
 		current_roads = self.qpainterpaths
 		if self.using_zoom_dimensions: current_roads = self.qpainterpaths_zoomed
 
+		road_used_as_stem = []
 		stems = [] # all roads in current selection
 
 		# calculate all roads connected to mouse
 		for road in current_roads:
-			if road.intersects(click_rect): stems.append(road)
+			if road.intersects(click_rect): 
+				stems.append(road)
+				road_used_as_stem.append(True)
+			else:
+				road_used_as_stem.append(False)
 
+		if self.road_used_as_stem == road_used_as_stem:
+			return # if the same as last time, return
+
+		if len(stems)==0:
+			self.is_connected = []
+			for road in current_roads:
+				self.is_connected.append(False)
+			return 
+
+		self.road_used_as_stem = road_used_as_stem
+
+		# attach up to level of 10
+		attach_level = 0
+		max_depth = 2
+		last_length = -1
+		while attach_level<max_depth:
+			print("Attach depth: "+str(attach_level)+", stems: "+str(len(stems)),end="\r")
+			attach_level+=1
+
+			road_index = 0
+			for road in current_roads:
+				if road_used_as_stem[road_index]==False:
+					for stem in stems:
+						if road.intersects(stem):
+							road_used_as_stem[road_index] = True 
+							stems.append(road)
+							break
+				road_index+=1
+			
+			if last_length == len(stems):
+				break
+
+			last_length = len(stems)
+
+		self.is_connected = [] # list of booleans
+		road_index = 0
+		for road in current_roads:
+			connects = False
+			if road_used_as_stem[road_index]:
+				connects = True 
+
+			if connects==False:
+				for stem in stems:
+					if road.intersects(stem):
+						connects = True
+						break
+			if connects:
+				self.is_connected.append(True)
+			else:
+				self.is_connected.append(False)
+
+		print("\n")
+
+		'''
 		# calculate all roads connected to all roads connected to mouse
 		for road in current_roads:
 			if road.intersects(click_rect):
@@ -293,7 +386,48 @@ class road_system(QWidget):
 				if connects_to_stem:
 					self.is_connected.append(True) # connected to road
 				else:
-					self.is_connected.append(False) # not connected
+					start_of_road = road.elementAt(0)
+					end_of_road = road.elementAt(road.elementCount()-1)
+
+					start_x = start_of_road.x
+					start_y = start_of_road.y
+					end_x = end_of_road.x 
+					end_y = end_of_road.y 
+
+					for stem in stems:
+						start_stem_x = stem.elementAt(0).x 
+						start_stem_y = stem.elementAt(0).y 
+
+						end_stem_x = stem.elementAt(stem.elementCount()-1).x 
+						end_stem_y = stem.elementAt(stem.elementCount()-1).y 
+
+						attach_margin = 20
+
+						if abs(start_x-start_stem_x)<=attach_margin:
+							if abs(start_y-start_stem_y)<=attach_margin:
+								connects_to_stem = True 
+								break
+
+						if abs(start_x-end_stem_x)<=attach_margin:
+							if abs(start_y-end_stem_y)<=attach_margin:
+								connects_to_stem = True
+								break
+
+						if abs(end_x-start_stem_x)<=attach_margin:
+							if abs(end_y-start_stem_y)<=attach_margin:
+								connects_to_stem = True
+								break
+
+						if abs(end_x-end_stem_x)<=attach_margin:
+							if abs(end_y-end_stem_y)<=attach_margin:
+								connects_to_stem = True
+								break
+
+					if connects_to_stem:
+						self.is_connected.append(True)
+					else:
+						self.is_connected.append(False) # not connected
+			'''
 
 	def paintEvent(self, e):
 		qp = QPainter()
@@ -332,6 +466,15 @@ class road_system(QWidget):
 			roads = self.qpainterpaths_zoomed
 		else:
 			roads = self.qpainterpaths
+
+		if self.start_translate and self.started_translate:
+			x_diff = self.mouse_x - self.translate_start_coordinates[0]
+			y_diff = self.mouse_y - self.translate_start_coordinates[1]
+
+			new_roads = []
+			for road in roads:
+				new_roads.append(road.translated(x_diff,y_diff))
+			roads = new_roads
 
 		#print("Rendering "+str(len(self.qpainterpaths))+" paths...")
 		num_roads=0

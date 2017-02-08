@@ -133,6 +133,8 @@ class main_window(QWidget):
 		self.file_menu.addAction("Quit",self.quit,QKeySequence("Ctrl+Q"))
 
 		self.view_menu = self.menu_bar.addMenu("View")
+		self.view_menu.addAction("Translate...",self.start_translate,QKeySequence("Ctrl+T"))
+		self.view_menu.addSeparator()
 		self.view_menu.addAction("Zoom...",self.start_zoom,QKeySequence("Ctrl+Z"))
 		self.view_menu.addAction("Reset Zoom",self.reset_zoom,QKeySequence("Ctrl+R"))
 
@@ -144,6 +146,12 @@ class main_window(QWidget):
 
 		self.menu_bar.setFixedWidth(200)
 		self.show()
+
+	def start_translate(self):
+		self.roadmap.drawing_zoom_rect = False
+		self.roadmap.started_translate = False
+		self.roadmap.start_translate = True
+		self.roadmap.setCursor(QCursor(Qt.OpenHandCursor))
 
 	def show_connected_roads(self):
 		self.roadmap.show_connected_roads = True
@@ -163,6 +171,7 @@ class main_window(QWidget):
 
 	def start_zoom(self):
 		self.drawing_zoom = True
+		self.roadmap.setCursor(QCursor(Qt.CrossCursor))
 		self.roadmap.start_zoom()
 
 	def save(self):
