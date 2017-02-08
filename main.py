@@ -28,25 +28,31 @@ from PyQt5.QtWidgets import *
 PAGE 63 of 2014 pdf describes road shapefiles...
 '''
 
-import Cython
-print("Found Cython installation, copying helpers.py to helpers.pyx...")
+using_cython = True
 
-if os.path.exists("c_helpers.pyx"):
-	if filecmp.cmp("helpers.py","c_helpers.pyx")==False: # if they are not the same already
+if using_cython:
+	import Cython
+	print("Found Cython installation, copying helpers.py to helpers.pyx...")
+
+	if os.path.exists("c_helpers.pyx"):
+		if filecmp.cmp("helpers.py","c_helpers.pyx")==False: # if they are not the same already
+			shutil.copyfile("helpers.py","c_helpers.pyx")
+	else:
 		shutil.copyfile("helpers.py","c_helpers.pyx")
+
+	print("Building C code (if error here change python2 to python in main.py)...")
+	try:
+		os.system("python setup.py build_ext --inplace")
+		#if ret != 0:
+		#	os.system("python setup.py build_ext --inplace")
+	except:
+		print("here")
+		os.system("python setup.py build_ext --inplace")
+
+	from c_helpers import road_t,road_system,parse_roads
+
 else:
-	shutil.copyfile("helpers.py","c_helpers.pyx")
-
-print("Building C code (if error here change python2 to python in main.py)...")
-try:
-	os.system("python setup.py build_ext --inplace")
-	#if ret != 0:
-	#	os.system("python setup.py build_ext --inplace")
-except:
-	print("here")
-	os.system("python setup.py build_ext --inplace")
-
-from c_helpers import road_t, road_system, parse_roads
+	from helpers import road_t,road_system,parse_roads
 
 pyqt_app = ""
 
@@ -122,9 +128,30 @@ class main_window(QWidget):
 	def init_ui(self):
 		self.roadmap = road_system()
 		self.layout = QVBoxLayout(self)
+		self.layout.addSpacing(25)
+
+		top_bar_layout = QHBoxLayout()
+		self.layout.addLayout(top_bar_layout)
+
 		self.layout.addWidget(self.roadmap)
 		self.resize(1600,1000)
 		self.setWindowTitle("Roadmap")
+
+		latitude_label = QLabel("Latitude: ",self)
+		self.latitude_value = QLineEdit("",self)
+		self.latitude_value.setEnabled(False)
+		self.latitude_value.setFixedWidth(100)
+		longitude_label = QLabel("Longitude: ",self)
+		self.longitude_value = QLineEdit("",self)
+		self.longitude_value.setEnabled(False)
+		self.longitude_value.setFixedWidth(100)
+
+		top_bar_layout.addWidget(longitude_label)
+		top_bar_layout.addWidget(self.longitude_value)
+		top_bar_layout.addSpacing(10)
+		top_bar_layout.addWidget(latitude_label)
+		top_bar_layout.addWidget(self.latitude_value)
+		top_bar_layout.addStretch()
 
 		self.menu_bar = QMenuBar(self)
 		self.file_menu = self.menu_bar.addMenu("File")
@@ -143,9 +170,14 @@ class main_window(QWidget):
 		self.tools_menu.addAction("Hide Connecting Roads",self.hide_connected_roads)
 
 		self.send_roads.connect(self.roadmap.load_roads)
+		self.roadmap.send_long_lat_data.connect(self.set_long_lat)
 
 		self.menu_bar.setFixedWidth(200)
 		self.show()
+
+	def set_long_lat(self,longitude,latitude):
+		self.longitude_value.setText(str(longitude)+" E" if longitude>0 else str(longitude*-1)+" W")
+		self.latitude_value.setText(str(latitude)+" N" if latitude>0 else str(latitude*-1)+" S")
 
 	def start_translate(self):
 		self.roadmap.drawing_zoom_rect = False
@@ -179,7 +211,7 @@ class main_window(QWidget):
 
 	def load_roads(self):
 		print("Loading road data...")
-		filename = "data/tl_2016_us_primaryroads.shp"
+		filename = "data/roads/tl_2016_us_primaryroads.shp"
 		roads = parse_roads(filename)
 		self.send_roads.emit(roads)
 		#self.roadmap.load_roads(roads)
