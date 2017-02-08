@@ -59,8 +59,13 @@ class road_system(QWidget):
 		self.started_rectangle = False
 		self.zoom_start_coordinates = [-1,-1]
 		self.zoom_end_coordinates = [-1,-1]
-		
 
+		self.ui_initialized = False
+		self.painter = None
+
+		self.show_connected_roads = False
+		self.is_connected = []
+		
 	def init_ui(self):
 		self.have_roads = False
 		self.using_zoom_dimensions = False
@@ -101,7 +106,7 @@ class road_system(QWidget):
 
 		trim_roads = False
 		if trim_roads:
-			self.trim_to_length(1000)
+			self.trim_to_length(1)
 
 		self.road_coordinates = self.get_road_coordinates()
 		self.top_left_coordinate = self.get_top_left_coordinate()
@@ -255,17 +260,46 @@ class road_system(QWidget):
 			self.started_rectangle = True
 
 	def mouseMoveEvent(self,event):
-
 		self.mouse_x = event.x()
 		self.mouse_y = event.y()
+		if self.show_connected_roads: self.get_connected_roads()
 		self.update()
 
-	def paintEvent(self, e):
+	def get_connected_roads(self):
+		# gets all roads connected to the current mouse location
+		self.is_connected = [] # list of booleans
+		click_rect = QRectF()
+		click_rect.setCoords(self.mouse_x-1,self.mouse_y-1,self.mouse_x+2,self.mouse_y+2)
 
-		self.qp = QPainter()
-		self.qp.begin(self)
-		self.drawWidget(self.qp)
-		self.qp.end()
+		current_roads = self.qpainterpaths
+		if self.using_zoom_dimensions: current_roads = self.qpainterpaths_zoomed
+
+		stems = [] # all roads in current selection
+
+		# calculate all roads connected to mouse
+		for road in current_roads:
+			if road.intersects(click_rect): stems.append(road)
+
+		# calculate all roads connected to all roads connected to mouse
+		for road in current_roads:
+			if road.intersects(click_rect):
+				self.is_connected.append(True) # in mouse region
+			else:
+				connects_to_stem = False
+				for stem in stems:
+					if road.intersects(stem):
+						connects_to_stem = True
+						break
+				if connects_to_stem:
+					self.is_connected.append(True) # connected to road
+				else:
+					self.is_connected.append(False) # not connected
+
+	def paintEvent(self, e):
+		qp = QPainter()
+		qp.begin(self)
+		self.drawWidget(qp)
+		qp.end()
 
 	def drawWidget(self, qp):
 		start_time = time.time()
@@ -301,10 +335,30 @@ class road_system(QWidget):
 
 		#print("Rendering "+str(len(self.qpainterpaths))+" paths...")
 		num_roads=0
+		index = 0
 		for path in roads:
 			if path.elementCount()>1:
 				num_roads+=1
-				qp.drawPath(path)
+				
+				if self.show_connected_roads:
+					if len(self.is_connected)==len(roads):
+						if self.is_connected[index]:
+							road_color = [0,0,255]
+							pen = QPen(QColor(road_color[0],road_color[1],road_color[2]),3.0,Qt.SolidLine)
+							qp.setPen(pen)
+							qp.drawPath(path)
+
+						else:
+							road_color = [0,0,0]
+							pen = QPen(QColor(road_color[0],road_color[1],road_color[2]),1.0,Qt.SolidLine)
+							qp.setPen(pen)
+							qp.drawPath(path)
+
+				else:
+					qp.drawPath(path)
+
+
+			index+=1
 
 		#print("Rendered "+str(num_roads)+" roads")
 
@@ -312,7 +366,11 @@ class road_system(QWidget):
 		self.last_render_width = ui_width
 		self.last_render_height = ui_height
 
-		cursor_color = [255,255,10]
+		
+		cursor_color = [65,105,255]
+		if self.drawing_zoom_rect and self.started_rectangle:
+			cursor_color = [255,255,10]
+
 		pen = QPen(QColor(cursor_color[0],cursor_color[1],cursor_color[2]), 1, Qt.SolidLine)
 		qp.setPen(pen)
 		qp.setBrush(QColor(cursor_color[0],cursor_color[1],cursor_color[2]))
@@ -327,9 +385,7 @@ class road_system(QWidget):
 			qp.setBrush(Qt.NoBrush)
 			qp.drawRect(x0,y0,x_run,y_run)
 		else:
-			qp.drawRect(self.mouse_x-2,self.mouse_y-2,4,4)
-
-		#print("Finished rendering map in "+str(time.time()-start_time)+" seconds")
+			qp.drawRect(self.mouse_x-1,self.mouse_y-1,2,2)
 
 	def map_to_ui(self,coordinate):
 		x_run = (coordinate[0]-self.top_left_coordinate[0])/self.longitude_per_pixel
@@ -377,9 +433,13 @@ class road_system(QWidget):
 		zoom_bounding_rect = QRectF()
 		zoom_bounding_rect.setCoords(x0,y0,x1,y1)
 
+		current_source = self.qpainterpaths
+		if self.using_zoom_dimensions: # if already zoomed
+			current_source = self.qpainterpaths_zoomed
+
 		self.qpainterpaths_zoomed = []
 
-		for path in self.qpainterpaths:
+		for path in current_source:
 			save_path = True
 			path_bounding_rect = path.boundingRect()
 
@@ -388,30 +448,39 @@ class road_system(QWidget):
 
 		self.expand_zoom_coordinates()
 		self.using_zoom_dimensions = True
+		print("Finished creating new zoom coordinates")
 		return
 
 	def expand_zoom_coordinates(self):
+		# called after we have removed moved all paths in qpainterpath over
+		# to qpainterpath_zoomed that are within the bounding rectangle of the zoom region
 
-		overall_bounding_rect = QRectF()
-		for road in self.qpainterpaths_zoomed:
-			road_bounding_rect = road.boundingRect()
-			overall_bounding_rect = overall_bounding_rect.united(road_bounding_rect)
+		# calculate overall bounding rectangle for remaining region...
+		overall_bounding_rect = get_bounding_rect(self.qpainterpaths_zoomed)
 
-		translate_x = overall_bounding_rect.left()
-		translate_y = overall_bounding_rect.top()
+		translate_x = overall_bounding_rect.left() # find distance from left edge
+		translate_y = overall_bounding_rect.top() # find distance from top edge
 
 		ui_height,ui_width = [self.size().height(),self.size().width()]
 
 		x_expansion = ui_width / overall_bounding_rect.width()
 		y_expansion = ui_height / overall_bounding_rect.height()
 
-		print(translate_x,translate_y,x_expansion,y_expansion,ui_height,overall_bounding_rect.height())
+		#print("x offset: ",translate_x)
+		#print("y offset: ",translate_y)
+		#print("x_expansion: ",x_expansion)
+		#print("y_expansion: ",y_expansion)
 
+		num_expanded = 0
+		num_zoomed_roads = len(self.qpainterpaths_zoomed)
 		adjusted_qpainterpaths_zoomed = [] # list of qpainterpath objects
 		for road in self.qpainterpaths_zoomed:
-			adjusted_road = road.translated(translate_x,translate_y)
+			adjusted_road = road.translated(-translate_x,-translate_y)
 			
+			print("Zoomed "+str(num_expanded)+" roads of "+str(num_zoomed_roads),end="\r")
+
 			if adjusted_road.elementCount()>1:
+				num_expanded+=1
 				expanded_road = QPainterPath()
 				expanded_road.moveTo(adjusted_road.elementAt(0).x*x_expansion,adjusted_road.elementAt(0).y*y_expansion)
 
@@ -421,7 +490,16 @@ class road_system(QWidget):
 				adjusted_qpainterpaths_zoomed.append(expanded_road)
 
 		self.qpainterpaths_zoomed = adjusted_qpainterpaths_zoomed
-		print("Finished expanding zoomed coordinates, ",len(self.qpainterpaths_zoomed))
+		#print("Finished expanding zoomed coordinates, ",len(self.qpainterpaths_zoomed))
+
+		#final_bounding_rect = get_bounding_rect(self.qpainterpaths_zoomed)
+		#print("Left edge of final bounding rect: ",final_bounding_rect.left())
+		#print("Top edge of final rounding rect: ",final_bounding_rect.top())
+		#print("Bottom edge of final rounding rect: ",final_bounding_rect.bottom())
+		#print("Right edge of final rounding rect: ",final_bounding_rect.right())
+		#print("UI Height: ",ui_height)
+		#print("UI Width: ",ui_height)
+
 
 	def map_all_to_earth(self,path):
 		self.unmapped_coordinates = []
@@ -436,6 +514,13 @@ class road_system(QWidget):
 				current_road.append(self.map_to_ui(coordinate))
 			self.mapped_coordinates.append(current_road)
 
+def get_bounding_rect(paths):
+	# takes in a list of qpainterpaths and returns the overall bounding rectangle
+	overall_bounding_rect = QRectF()
+	for road in paths:
+		road_bounding_rect = road.boundingRect()
+		overall_bounding_rect = overall_bounding_rect.united(road_bounding_rect)
+	return overall_bounding_rect
 
 def get_top_left_coordinate():
 	highest_latitude = -100000

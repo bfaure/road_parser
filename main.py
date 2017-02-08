@@ -136,9 +136,20 @@ class main_window(QWidget):
 		self.view_menu.addAction("Zoom...",self.start_zoom,QKeySequence("Ctrl+Z"))
 		self.view_menu.addAction("Reset Zoom",self.reset_zoom,QKeySequence("Ctrl+R"))
 
+		self.tools_menu = self.menu_bar.addMenu("Tools")
+		self.tools_menu.addAction("Show Connecting Roads",self.show_connected_roads)
+		self.tools_menu.addAction("Hide Connecting Roads",self.hide_connected_roads)
+
 		self.send_roads.connect(self.roadmap.load_roads)
 
+		self.menu_bar.setFixedWidth(200)
 		self.show()
+
+	def show_connected_roads(self):
+		self.roadmap.show_connected_roads = True
+
+	def hide_connected_roads(self):
+		self.roadmap.show_connected_roads = False
 
 	def quit(self):
 		pyqt_app.exit()
