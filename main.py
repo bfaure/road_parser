@@ -147,95 +147,12 @@ class main_window(QWidget):
 		self.path.clear_path()
 		self.update()
 
-	def enterEvent(self,event):
-		# called if the mouse cursor goes over the widget
-		#print("Mouse entered widget")
-		#self.verbose = False
-		self.setMouseTracking(True)
-
-	def leaveEvent(self,event):
-		# called if the mouse cursor leaves the widget
-		#print("Mouse left widget")
-		#self.verbose = True
-		self.setMouseTracking(False)
-
-	def paintEvent(self,event):
-		painter = QPainter()
-		painter.begin(self)
-		cursor_color = [255,255,10]
-		pen = QPen(QColor(cursor_color[0],cursor_color[1],cursor_color[2]), 1, Qt.SolidLine)
-		painter.setBrush(QColor(cursor_color[0],cursor_color[1],cursor_color[2]))
-
-		painter.setPen(pen)
-		painter.drawRect(self.mouse_x,self.mouse_y,20,20)
-		painter.end()
-
-	def mouseMoveEvent(self,event):
-		self.mouse_x = event.x()
-		self.mouse_y = event.y()
-		self.repaint()
-
-	'''
-	def mousePressEvent(self, event):
-		if self.drawing_zoom:
-			x = event.x()
-			y = event.y()
-			self.path.clear_path()
-
-			self.mouseHeld = True
-			position = event.pos()
-			self.path.add_point(x,y)
-			return
-
-	def paintEvent(self, event):
-		painter = QPainter()
-		painter.begin(self)
-		self.zoom_color = [0,255,0]
-		pen = QPen(QColor(self.zoom_color[0],self.zoom_color[1],self.zoom_color[2]), 1, Qt.SolidLine)
-		painter.setPen(pen)
-
-		last_x = 0
-		last_y = 0
-		for x,y in list(zip(self.path.x_pos, self.path.y_pos)):
-			if last_x == 0:
-				last_x = x
-				last_y = y
-			else:
-				painter.drawLine(last_x, last_y, x, y)
-				last_x = x
-				last_y = y
-		painter.end()
-
-
-	def mouseMoveEvent(self, event):
-		if self.drawing_zoom:
-			x = event.x()
-			y = event.y()
-
-			if self.mouseHeld == True:
-				print("Saving path coordinate")
-
-				position = event.pos()
-				self.path.add_point(x,y)
-
-				self.repaint()
-				return
-			else:
-				return
-
-	def mouseReleaseEvent(self, event):
-		if self.drawing_zoom:
-			self.drawing_zoom = False
-			self.mouseHeld = False
-			#self.emit(SIGNAL("send_data(PyQt_PyObject)"), self.path)
-			self.roadmap.set_zoom_dimensions(self.path)
-			#self.clear_zoom_path()
-	'''
 	def reset_zoom(self):
 		self.roadmap.reset_zoom()
 
 	def start_zoom(self):
 		self.drawing_zoom = True
+		self.roadmap.start_zoom()
 
 	def save(self):
 		self.roadmap.save_as_grid_file("test.grid",10,10)

@@ -52,6 +52,15 @@ class road_system(QWidget):
 		self.last_render_height = 1
 		self.new_roads = False 
 
+		self.mouse_x = 0
+		self.mouse_y = 0
+
+		self.drawing_zoom_rect = False
+		self.started_rectangle = False
+		self.zoom_start_coordinates = [-1,-1]
+		self.zoom_end_coordinates = [-1,-1]
+		
+
 	def init_ui(self):
 		self.have_roads = False
 		self.using_zoom_dimensions = False
@@ -114,11 +123,14 @@ class road_system(QWidget):
 	def init_qpainterpaths(self):
 		# goes through the roads in self.road_coordinates and creates a single qpainterpath for each
 		self.qpainterpaths = []
-		for road in self.road_coordinates:
+		for road in self.mapped_coordinates:
 			if len(road)>=1:
 				temp = QPainterPath()
-				for coordinate in road:
+				temp.moveTo(road[0][0],road[0][1])
+				for coordinate in road[1:]:
 					temp.lineTo(coordinate[0],coordinate[1])
+					temp.moveTo(coordinate[0],coordinate[1])
+
 				self.qpainterpaths.append(temp)
 
 	def get_top_left_coordinate(self):
@@ -217,6 +229,37 @@ class road_system(QWidget):
 		f.write(cell_chars_str)
 		print("Finished saving to "+filename)
 
+	
+	def enterEvent(self,event):
+		# called if the mouse cursor goes over the widget
+
+		#self.verbose = False
+		self.setMouseTracking(True)
+
+	def leaveEvent(self,event):
+		# called if the mouse cursor leaves the widget
+
+		#self.verbose = True
+		self.setMouseTracking(False)
+
+	def mouseReleaseEvent(self,event):
+		if self.drawing_zoom_rect and self.started_rectangle:
+			self.zoom_end_coordinates = [event.x(),event.y()]
+			self.drawing_zoom_rect = False
+			self.zoom()
+
+	def mousePressEvent(self,event):
+		# if we are drawing the zoom rectance, save the start coordinates
+		if self.drawing_zoom_rect:
+			self.zoom_start_coordinates = [event.x(),event.y()]
+			self.started_rectangle = True
+
+	def mouseMoveEvent(self,event):
+
+		self.mouse_x = event.x()
+		self.mouse_y = event.y()
+		self.update()
+
 	def paintEvent(self, e):
 
 		self.qp = QPainter()
@@ -250,30 +293,43 @@ class road_system(QWidget):
 		qp.setPen(pen)
 		qp.setBrush(Qt.NoBrush)
 
-		'''
-		if self.using_zoom_dimensions:
-			coords = self.zoomed_coordinates
-		else:
-			coords = self.mapped_coordinates
-
-		road_ct = 0
-		for road in coords:
-			if len(road)>=1:
-				print("Drawing a road: "+str(road_ct),end="\r")
-				road_ct+=1
-				last = road[0]
-				for coordinate in road[1:]:
-					current = coordinate
-					qp.drawLine(last[0],last[1],current[0],current[1])
-					last = current
-		'''
-
 		
+		if self.using_zoom_dimensions:
+			roads = self.qpainterpaths_zoomed
+		else:
+			roads = self.qpainterpaths
+
+		#print("Rendering "+str(len(self.qpainterpaths))+" paths...")
+		num_roads=0
+		for path in roads:
+			if path.elementCount()>1:
+				num_roads+=1
+				qp.drawPath(path)
+
+		#print("Rendered "+str(num_roads)+" roads")
 
 		self.new_roads = False 
 		self.last_render_width = ui_width
 		self.last_render_height = ui_height
-		print("Finished rendering map in "+str(time.time()-start_time)+" seconds")
+
+		cursor_color = [255,255,10]
+		pen = QPen(QColor(cursor_color[0],cursor_color[1],cursor_color[2]), 1, Qt.SolidLine)
+		qp.setPen(pen)
+		qp.setBrush(QColor(cursor_color[0],cursor_color[1],cursor_color[2]))
+
+		if self.drawing_zoom_rect and self.started_rectangle:
+			x0 = self.zoom_start_coordinates[0]
+			y0 = self.zoom_start_coordinates[1]
+
+			x_run = self.mouse_x-x0
+			y_run = self.mouse_y-y0
+
+			qp.setBrush(Qt.NoBrush)
+			qp.drawRect(x0,y0,x_run,y_run)
+		else:
+			qp.drawRect(self.mouse_x-2,self.mouse_y-2,4,4)
+
+		#print("Finished rendering map in "+str(time.time()-start_time)+" seconds")
 
 	def map_to_ui(self,coordinate):
 		x_run = (coordinate[0]-self.top_left_coordinate[0])/self.longitude_per_pixel
@@ -290,59 +346,83 @@ class road_system(QWidget):
 		self.using_zoom_dimensions = False
 		self.repaint()
 
-	def set_zoom_dimensions(self,zoom_path):
+	def start_zoom(self):
+		self.drawing_zoom_rect = True
+		self.started_rectangle = False
+
+	def zoom(self):
+
+		x0=-1 # top left of rectangle (smallest x)
+		y0=-1 # top left of rectangle (smallest y)
+		x1=-1 # bottom right of rectangle (largest x)
+		y1=-1 # bottom right of rectangle (largest y)
+
+		click = self.zoom_start_coordinates
+		release = self.zoom_end_coordinates
+
+		if click[0]<release[0]:
+			x0 = click[0]
+			x1 = release[0]
+		else:
+			x0 = release[0]
+			x1 = click[0]
+
+		if click[1]<release[1]:
+			y0 = click[1]
+			y1 = release[1]
+		else:
+			y0 = release[1]
+			y1 = click[1]
+
+		zoom_bounding_rect = QRectF()
+		zoom_bounding_rect.setCoords(x0,y0,x1,y1)
+
+		self.qpainterpaths_zoomed = []
+
+		for path in self.qpainterpaths:
+			save_path = True
+			path_bounding_rect = path.boundingRect()
+
+			if zoom_bounding_rect.intersects(path_bounding_rect):
+				self.qpainterpaths_zoomed.append(path)
+
+		self.expand_zoom_coordinates()
+		self.using_zoom_dimensions = True
 		return
 
-		self.using_zoom_dimensions = True 
-		self.map_all_to_earth(zoom_path)
-		top_left_coordinate = get_top_left_coordinate_path(self.unmapped_coordinates)
-		bottom_right_coordinate = get_bottom_right_coordinate_path(self.unmapped_coordinates)
+	def expand_zoom_coordinates(self):
 
-		self.zoom(top_left_coordinate[0],top_left_coordinate[1],bottom_right_coordinate[0],bottom_right_coordinate[1])
+		overall_bounding_rect = QRectF()
+		for road in self.qpainterpaths_zoomed:
+			road_bounding_rect = road.boundingRect()
+			overall_bounding_rect = overall_bounding_rect.united(road_bounding_rect)
 
-	def zoom(self,x0,y0,x1,y1):
-		return
-		'''
-		self.zoomed_coordinates = []
-		for road in self.mapped_coordinates:
-			keep_road = True
-			for coordinate in road:
-				if coordinate[0]>x1 or coordinate[0]<x0 or coordinate[1]>y1 or coordinate[1]<y0:
-					keep_road = False
-					break
-			if keep_road:
-				self.zoomed_co
-		'''
+		translate_x = overall_bounding_rect.left()
+		translate_y = overall_bounding_rect.top()
 
-	'''
-	def get_top_left_coordinate_path(self,path):
-		highest_latitude = -100000
-		lowest_longitude = 100000
+		ui_height,ui_width = [self.size().height(),self.size().width()]
 
-		for road in self.road_coordinates:
-			for coordinate in road:
+		x_expansion = ui_width / overall_bounding_rect.width()
+		y_expansion = ui_height / overall_bounding_rect.height()
 
-				if coordinate[0] < lowest_longitude:
-					lowest_longitude = coordinate[0]
+		print(translate_x,translate_y,x_expansion,y_expansion,ui_height,overall_bounding_rect.height())
 
-				if coordinate[1] > highest_latitude:
-					highest_latitude = coordinate[1]
+		adjusted_qpainterpaths_zoomed = [] # list of qpainterpath objects
+		for road in self.qpainterpaths_zoomed:
+			adjusted_road = road.translated(translate_x,translate_y)
+			
+			if adjusted_road.elementCount()>1:
+				expanded_road = QPainterPath()
+				expanded_road.moveTo(adjusted_road.elementAt(0).x*x_expansion,adjusted_road.elementAt(0).y*y_expansion)
 
-		return [lowest_longitude,highest_latitude]
+				for i in range(1,adjusted_road.elementCount()):
+					expanded_road.lineTo(adjusted_road.elementAt(i).x*x_expansion,adjusted_road.elementAt(i).y*y_expansion)
+					expanded_road.moveTo(adjusted_road.elementAt(i).x*x_expansion,adjusted_road.elementAt(i).y*y_expansion)
+				adjusted_qpainterpaths_zoomed.append(expanded_road)
 
-	def get_bottom_right_coordinate_path(self,path):
-		lowest_latitutude = 100000
-		highest_longitude = -1000000
+		self.qpainterpaths_zoomed = adjusted_qpainterpaths_zoomed
+		print("Finished expanding zoomed coordinates, ",len(self.qpainterpaths_zoomed))
 
-		for coord in path:
-			if 
-			for coordinate in road:
-				if coordinate[0] > highest_longitude:
-					highest_longitude = coordinate[0]
-				if coordinate[1] < lowest_latitutude:
-					lowest_latitutude = coordinate[1]
-		return [highest_longitude,lowest_latitutude]
-	'''
 	def map_all_to_earth(self,path):
 		self.unmapped_coordinates = []
 		for coordinate in path:
@@ -355,6 +435,35 @@ class road_system(QWidget):
 			for coordinate in road:
 				current_road.append(self.map_to_ui(coordinate))
 			self.mapped_coordinates.append(current_road)
+
+
+def get_top_left_coordinate():
+	highest_latitude = -100000
+	lowest_longitude = 100000
+
+	for road in road_coordinates:
+		for coordinate in road:
+
+			if coordinate[0] < lowest_longitude:
+				lowest_longitude = coordinate[0]
+
+			if coordinate[1] > highest_latitude:
+				highest_latitude = coordinate[1]
+
+	return [lowest_longitude,highest_latitude]
+
+def get_bottom_right_coordinate():
+	lowest_latitutude = 100000
+	highest_longitude = -1000000
+
+	for road in road_coordinates:
+		for coordinate in road:
+			if coordinate[0] > highest_longitude:
+				highest_longitude = coordinate[0]
+			if coordinate[1] < lowest_latitutude:
+				lowest_latitutude = coordinate[1]
+	return [highest_longitude,lowest_latitutude]
+
 
 def parse_roads(filename):
 	print("Parsing road data from "+filename+"...")
