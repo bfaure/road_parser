@@ -145,12 +145,19 @@ class main_window(QWidget):
 		self.longitude_value = QLineEdit("",self)
 		self.longitude_value.setEnabled(False)
 		self.longitude_value.setFixedWidth(100)
+		elevation_label = QLabel("Elevation: ",self)
+		self.elevation_value = QLineEdit("",self)
+		self.elevation_value.setEnabled(False)
+		self.elevation_value.setFixedWidth(100)
 
 		top_bar_layout.addWidget(longitude_label)
 		top_bar_layout.addWidget(self.longitude_value)
 		top_bar_layout.addSpacing(10)
 		top_bar_layout.addWidget(latitude_label)
 		top_bar_layout.addWidget(self.latitude_value)
+		top_bar_layout.addSpacing(10)
+		top_bar_layout.addWidget(elevation_label)
+		top_bar_layout.addWidget(self.elevation_value)
 		top_bar_layout.addStretch()
 
 		self.menu_bar = QMenuBar(self)
@@ -175,9 +182,10 @@ class main_window(QWidget):
 		self.menu_bar.setFixedWidth(200)
 		self.show()
 
-	def set_long_lat(self,longitude,latitude):
+	def set_long_lat(self,longitude,latitude,elevation):
 		self.longitude_value.setText(str(longitude)+" E" if longitude>0 else str(longitude*-1)+" W")
 		self.latitude_value.setText(str(latitude)+" N" if latitude>0 else str(latitude*-1)+" S")
+		self.elevation_value.setText(str(elevation))
 
 	def start_translate(self):
 		self.roadmap.drawing_zoom_rect = False

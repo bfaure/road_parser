@@ -47,6 +47,8 @@ class region:
 		self.real_ncols		= -1
 		self.real_nrows		= -1
 
+		self.verbose = False
+
 	# Parses in header info & data from a .asc file
 	#
 	# src = filename for source .asc file
@@ -61,7 +63,7 @@ class region:
 		start_time = time.time()
 		self.src_filename = src
 
-		print("Parsing region topography from "+src+"...")
+		if self.verbose: print("Parsing region topography from "+src+"...")
 
 		file = open(src,'r')
 		tags = ["ncols","nrows","xllcorner","yllcorner","cellsize","NODATA_value"]
@@ -73,7 +75,7 @@ class region:
 
 			if line_attribs[0] != tag:
 
-				print("Could not locate ["+tag+"] tag in file header, found ["+line_attribs[0]+"] instead.")
+				if self.verbose: print("Could not locate ["+tag+"] tag in file header, found ["+line_attribs[0]+"] instead.")
 				return -1
 
 			self.__dict__[tag] = line_attribs[1]
@@ -122,49 +124,53 @@ class region:
 		self.real_ncols = self.ncols/compression_factor
 
 		file.close()
-		print ("number of rows = "+str(len(self.data)))
+		if self.verbose: print ("number of rows = "+str(len(self.data)))
 		self.have_data = True
-		print ("Data read & parsed in "+str(time.time()-start_time)+" seconds.")
+		if self.verbose: print ("Data read & parsed in "+str(time.time()-start_time)+" seconds.")
 		#print "Upper border: "+str(self.upper_border)+", Lower border: "+str(self.lower_border)
 		#print "Left border: "+str(self.left_border)+", Right border: "+str(self.right_border)
 		return 1
 
 	# Returns the elevation value at the specified column and row
 	def get_elev_col_row(self, column, row):
-
 		return float(self.data[column][row])
 
 	# Returns the elevation value closest to the input latitude & longitude
 	def get_elev_lat_long(self, latitude, longitude):
 
 		if latitude<self.lower_border or latitude>self.upper_border:
-			print("Latitude ("+str(latitude)+") out of range, cannot locate elevation.")
+			#print("Latitude ("+str(latitude)+") out of range, cannot locate elevation.")
 			return -1
 
 		if longitude<self.left_border or longitude>self.right_border:
-			print ("Longitude ("+str(longitude)+") out of range, cannot locate elevation.")
+			#print ("Longitude ("+str(longitude)+") out of range, cannot locate elevation.")
 			return -1
 
+
 		cur_lat = self.upper_border
-		
 		for row in self.data:
 
-			if cur_lat <= latitude:
+			cur_largest_lat = cur_lat+(self.cellsize/1.2)
+			cur_smallest_lat = cur_lat-(self.cellsize/1.2)
+
+			if latitude<=cur_largest_lat and latitude>=cur_smallest_lat:
 
 				cur_long = self.left_border
 
 				for cell in row:
 
-					if cur_long >= longitude:
+					cur_smallest_long = cur_long+(self.cellsize/1.2)
+					cur_largest_long = cur_long-(self.cellsize/1.2)
 
+					if longitude<=cur_largest_long and longitude>=cur_smallest_long:
 						return int(cell)
 
 					cur_long += self.cellsize
 
 			cur_lat -= self.cellsize
 
-		print ("ERROR: got to end of get_elev_lat_long function.")
-		return -1
+		if self.verbose: print ("ERROR: got to end of get_elev_lat_long function, trying to find (longitude,latitude): ("+str(longitude)+","+str(latitude)+").")
+		return -2
 
 	# Returns the float value of the average of all elevations in region
 	def get_avg_elev(self):
@@ -347,7 +353,7 @@ class region:
 			self.real_nrows += o_region.real_nrows
 			return 1
 
-		print ("ERROR: Got to end of stitch function without entering a case.")
+		if self.verbose: print ("ERROR: Got to end of stitch function without entering a case.")
 		return -1
 
 	def save(self, res):
@@ -433,7 +439,7 @@ class road_t:
 
 class road_system(QWidget):
 	
-	send_long_lat_data = pyqtSignal(float,float)
+	send_long_lat_data = pyqtSignal(float,float,float)
 
 	def __init__(self):
 		super(road_system,self).__init__()
@@ -443,7 +449,9 @@ class road_system(QWidget):
 	def init_vars(self):
 
 		self.using_elevation = True
-		self.elevation_data = region()
+		self.elevation_data = []
+		temp = region()
+		self.elevation_data.append(temp)
 
 		self.roads = []
 		self.mapped_coordinates = []
@@ -533,13 +541,31 @@ class road_system(QWidget):
 
 		if self.using_elevation:
 			self.load_elevation_data()
-			self.normalize_elevation_data()
 
 	def load_elevation_data(self):
-		filename = "data/elevation/srtm_11_02.asc"
+		asc_files = os.listdir("data/elevation/")
+		compression_factor = 10
+		print("Loading "+str(len(asc_files))+" .asc elevation files...",end="\r")
+		num_loaded = 0
+		for filename in asc_files:
+			if filename.endswith(".asc"):
+				print("Loading "+str(len(asc_files))+" .asc elevation files... "+str(num_loaded),end="\r")
+				num_loaded+=1
+				if num_loaded>3:
+					break
+				stiched_region = False
+				for region_section in self.elevation_data:
+					if region_section.parse_from_file("data/elevation/"+filename,compression_factor)!=-1:
+						stiched_region = True
+						break
+				if stiched_region==False:
+					new_region = region()
+					new_region.parse_from_file("data/elevation/"+filename,compression_factor)
+					self.elevation_data.append(new_region)
+		print("Finished loading elevation data, created "+str(len(self.elevation_data))+" regions...")
 
-	def normalize_elevation_data(self):
-		pass
+		for road in self.elevation_data:
+			print("yll: "+str(road.yllcorner)+", xll: "+str(road.xllcorner)+", avg. elev: "+str(road.get_avg_elev()))
 
 	def init_qpainterpaths(self):
 		# goes through the roads in self.road_coordinates and creates a single qpainterpath for each
@@ -688,7 +714,14 @@ class road_system(QWidget):
 		self.mouse_x = event.x()
 		self.mouse_y = event.y()
 		longitude,latitude = self.map_to_earth([self.mouse_x,self.mouse_y])
-		self.send_long_lat_data.emit(float(str(longitude)[:10]),float(str(latitude)[:10]))
+
+		# check the self.elevation_data list
+		for elevation_data in self.elevation_data:
+			elevation = elevation_data.get_elev_lat_long(latitude,longitude)
+			if elevation!=-1:
+				break
+
+		self.send_long_lat_data.emit(float(str(longitude)[:10]),float(str(latitude)[:10]),float(elevation))
 		if self.show_connected_roads: self.get_connected_roads()
 		self.update()
 
@@ -867,11 +900,6 @@ class road_system(QWidget):
 		self.latitude_per_pixel = latitude_per_pixel
 		self.longitude_per_pixel = longitude_per_pixel
 
-		road_color = [0,0,0]
-		pen = QPen(QColor(road_color[0],road_color[1],road_color[2]),1.0,Qt.SolidLine)
-		qp.setPen(pen)
-		qp.setBrush(Qt.NoBrush)
-
 		
 		if self.using_zoom_dimensions:
 			roads = self.qpainterpaths_zoomed
@@ -886,6 +914,46 @@ class road_system(QWidget):
 			for road in roads:
 				new_roads.append(road.translated(x_diff,y_diff))
 			roads = new_roads
+
+		f = open("debug_log.txt","w")
+
+		if self.using_elevation:
+			for y in range(self.size().height()):
+				for x in range(self.size().width()):
+					longitude,latitude = self.map_to_earth([x,y])
+					f.write(str(longitude)+","+str(latitude)+"\n")
+					for rgn in self.elevation_data:
+						elev = float(rgn.get_elev_lat_long(latitude,longitude))
+						f.write(str(elev)+"\n")
+						if elev!=-1:
+							break
+
+					if elev>0:
+						print(elev)
+						
+						mtn_r = 255-float(elev*0.1)
+						mtn_g = 255-float(elev*0.1)
+						mtn_b = 255-float(elev*0.1)
+
+						if mtn_r<0:mtn_r = 0
+						if mtn_g<0:mtn_g = 0
+						if mtn_b<0:mtn_b = 0
+
+						mtn_color = [int(mtn_r),int(mtn_g),int(mtn_b)]
+
+						pen = QPen(QColor(mtn_color[0],mtn_color[1],mtn_color[2]),1.0,Qt.SolidLine)
+						qp.setPen(pen)
+						qp.setBrush(QColor(mtn_color[0],mtn_color[1],mtn_color[2]))
+						qp.drawRect(x-1,y-1,x+2,y+2)
+					if elev!=-1:
+						print(elev)
+
+
+
+		road_color = [0,0,0]
+		pen = QPen(QColor(road_color[0],road_color[1],road_color[2]),1.0,Qt.SolidLine)
+		qp.setPen(pen)
+		qp.setBrush(Qt.NoBrush)
 
 		#print("Rendering "+str(len(self.qpainterpaths))+" paths...")
 		num_roads=0
@@ -902,10 +970,11 @@ class road_system(QWidget):
 							qp.setPen(pen)
 							qp.drawPath(path)
 
-						else:
 							road_color = [0,0,0]
 							pen = QPen(QColor(road_color[0],road_color[1],road_color[2]),1.0,Qt.SolidLine)
 							qp.setPen(pen)
+
+						else:
 							qp.drawPath(path)
 
 				else:
